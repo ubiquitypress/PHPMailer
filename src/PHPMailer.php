@@ -943,7 +943,7 @@ class PHPMailer
         
         return true;
     }
-    
+
     /**
      * Call mail() in a safe_mode-aware fashion.
      * Also, unless sendmail_path points to sendmail (or something that
@@ -1714,7 +1714,7 @@ class PHPMailer
 
                     return $this->apiSend($this->MIMEHeader, $this->MIMEBody);
             }
-        } catch (Exception $exc) {
+        } catch (Exception $exc) { 
             $this->setError($exc->getMessage());
             $this->edebug($exc->getMessage());
             if ($this->exceptions) {
