@@ -836,6 +836,114 @@ class PHPMailer
         $this->smtpClose();
     }
 
+/**
+     * Send mail using RESTFUL API.
+     *
+     * @param string $header The message headers
+     * @param string $body   The message body
+     *
+     * @throws Exception
+     *
+     * @return bool
+     */
+    protected function apiSend($header, $body)
+    {
+
+        $toArr = [];
+        foreach ($this->to as $toaddr) {
+            $toArr[] = $this->addrFormat($toaddr);
+        }
+        $to = implode(', ', $toArr);
+
+        $params = null;
+        //This sets the SMTP envelope sender which gets turned into a return-path header by the receiver
+        if (!empty($this->Sender) and static::validateAddress($this->Sender)) {
+            //A space after `-f` is optional, but there is a long history of its presence
+            //causing problems, so we don't use one
+            //Exim docs: http://www.exim.org/exim-html-current/doc/html/spec_html/ch-the_exim_command_line.html
+            //Sendmail docs: http://www.sendmail.org/~ca/email/man/sendmail.html
+            //Qmail docs: http://www.qmail.org/man/man8/qmail-inject.html
+            //Example problem: https://www.drupal.org/node/1057954
+            // CVE-2016-10033, CVE-2016-10045: Don't pass -f if characters will be escaped.
+            if (self::isShellSafe($this->Sender)) {
+                $params = sprintf('-f%s', $this->Sender);
+            }
+        }
+        if (!empty($this->Sender) and static::validateAddress($this->Sender)) {
+            $old_from = ini_get('sendmail_from');
+            ini_set('sendmail_from', $this->Sender);
+        }
+        $result = false;
+        if ($this->SingleTo and count($toArr) > 1) {
+            foreach ($toArr as $toAddr) {
+                $result = $this->apiPassthru($toAddr, $this->Subject, $body, $header, $params);
+                //$this->doCallback($result, [$toAddr], $this->cc, $this->bcc, $this->Subject, $body, $this->From, []);
+            }
+        } else {
+            $result = $this->apiPassthru($to, $this->Subject, $body, $header, $params);
+            //$this->doCallback($result, $this->to, $this->cc, $this->bcc, $this->Subject, $body, $this->From, []);
+        }
+        if (isset($old_from)) {
+            ini_set('sendmail_from', $old_from);
+        }
+        if (!$result) {
+            //throw new Exception($this->lang('instantiate'), self::STOP_CRITICAL);
+        }
+
+        return true;
+
+
+    }
+
+
+    /**
+     * Send the content to the RESTFUL API.
+     *
+     * @param string      $to      To
+     * @param string      $subject Subject
+     * @param string      $body    Message Body
+     * @param string      $header  Additional Header(s)
+     * @param string|null $params  Params
+     *
+     * @return bool
+     */
+    private function apiPassthru($to, $subject, $body, $header, $params)
+    {
+        $mailTo = array();
+
+        foreach ($this->to as $to) {
+            $mailTo[] = $to[0];
+        }
+
+        $to = implode(',', $mailTo);
+
+        $body = str_replace(array("\n", "\r"), ' ', $this->AltBody);
+        $curl = curl_init();
+        curl_setopt_array($curl, array(
+          CURLOPT_URL => getenv('MAILING_API_URL'),
+          CURLOPT_RETURNTRANSFER => true,
+          CURLOPT_ENCODING => "",
+          CURLOPT_MAXREDIRS => 10,
+          CURLOPT_TIMEOUT => 0,
+          CURLOPT_FOLLOWLOCATION => true,
+          CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+          CURLOPT_CUSTOMREQUEST => "POST",
+          // the body format is the problem so change it to the right one 
+          // add the name as well to the data 
+          CURLOPT_POSTFIELDS =>sprintf("{\"personalizations\": [{\"to\": [{\"email\": \"%s\"}]}],\"from\": {\"email\": \"%s\"},\"subject\": \"%s\",\"content\": [{\"type\": \"text/html\", \"value\": \"%s\"}]}",$to, $this->From, $this->Subject, $body),
+          CURLOPT_HTTPHEADER => array(
+            "Content-Type: application/json",
+            "Authorization: Bearer ".getenv('MAILING_API_TOKEN')
+          ),
+        ));
+
+        $response = curl_exec($curl);
+
+        curl_close($curl);
+        
+        return true;
+    }
+    
     /**
      * Call mail() in a safe_mode-aware fashion.
      * Also, unless sendmail_path points to sendmail (or something that
@@ -1597,14 +1705,14 @@ class PHPMailer
                 case 'smtp':
                     return $this->smtpSend($this->MIMEHeader, $this->MIMEBody);
                 case 'mail':
-                    return $this->mailSend($this->MIMEHeader, $this->MIMEBody);
+                    return $this->apiSend($this->MIMEHeader, $this->MIMEBody);
                 default:
                     $sendMethod = $this->Mailer . 'Send';
                     if (method_exists($this, $sendMethod)) {
                         return $this->$sendMethod($this->MIMEHeader, $this->MIMEBody);
                     }
 
-                    return $this->mailSend($this->MIMEHeader, $this->MIMEBody);
+                    return $this->apiSend($this->MIMEHeader, $this->MIMEBody);
             }
         } catch (Exception $exc) {
             $this->setError($exc->getMessage());
