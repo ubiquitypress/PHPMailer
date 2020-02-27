@@ -910,6 +910,11 @@ class PHPMailer
     private function apiPassthru($to, $subject, $body, $header, $params)
     {
         $mailTo = array();
+        
+        $config = file_get_contents($_SERVER['DOCUMENT_ROOT'].'/config.inc.php');
+        preg_match('/\nmail_api_token\s*=\s*(.+)/', $config, $api_token);
+        preg_match('/\nmail_api_url\s*=\s*(.+)/', $config, $api_url);
+
 
         foreach ($this->to as $to) {
             $mailTo[] = $to[0];
@@ -917,10 +922,10 @@ class PHPMailer
 
         $to = implode(',', $mailTo);
 
-        $body = str_replace(array("\n", "\r"), ' ', $this->AltBody);
+        $body = str_replace(array("\n", "\r"), ' ', $this->AltBody.'>>');
         $curl = curl_init();
         curl_setopt_array($curl, array(
-          CURLOPT_URL => getenv('MAILING_API_URL'),
+          CURLOPT_URL => trim($api_url[1]),
           CURLOPT_RETURNTRANSFER => true,
           CURLOPT_ENCODING => "",
           CURLOPT_MAXREDIRS => 10,
@@ -933,7 +938,7 @@ class PHPMailer
           CURLOPT_POSTFIELDS =>sprintf("{\"personalizations\": [{\"to\": [{\"email\": \"%s\"}]}],\"from\": {\"email\": \"%s\"},\"subject\": \"%s\",\"content\": [{\"type\": \"text/html\", \"value\": \"%s\"}]}",$to, $this->From, $this->Subject, $body),
           CURLOPT_HTTPHEADER => array(
             "Content-Type: application/json",
-            "Authorization: Bearer ".getenv('MAILING_API_TOKEN')
+            "Authorization: Bearer ".trim($api_token[1])
           ),
         ));
 
