@@ -102,14 +102,14 @@ class PHPMailer
      *
      * @var string
      */
-    public $From = 'root@localhost';
+    public $From = 'no-reply@ubiquitypartnernetwork.com';
 
     /**
      * The From name of the message.
      *
      * @var string
      */
-    public $FromName = 'Root User';
+    public $FromName = 'Ubiquity Press';
 
     /**
      * The envelope sender of the message.
@@ -877,17 +877,15 @@ class PHPMailer
         if ($this->SingleTo and count($toArr) > 1) {
             foreach ($toArr as $toAddr) {
                 $result = $this->apiPassthru($toAddr, $this->Subject, $body, $header, $params);
-                //$this->doCallback($result, [$toAddr], $this->cc, $this->bcc, $this->Subject, $body, $this->From, []);
+                $this->doCallback($result, [$toAddr], $this->cc, $this->bcc, $this->Subject, $body, $this->From, []);
             }
         } else {
             $result = $this->apiPassthru($to, $this->Subject, $body, $header, $params);
-            //$this->doCallback($result, $this->to, $this->cc, $this->bcc, $this->Subject, $body, $this->From, []);
+            $this->doCallback($result, $this->to, $this->cc, $this->bcc, $this->Subject, $body, $this->From, []);
         }
-        if (isset($old_from)) {
-            ini_set('sendmail_from', $old_from);
-        }
+
         if (!$result) {
-            //throw new Exception($this->lang('instantiate'), self::STOP_CRITICAL);
+            throw new Exception($this->lang('instantiate'), self::STOP_CRITICAL);
         }
 
         return true;
@@ -915,38 +913,28 @@ class PHPMailer
         preg_match('/\nmail_api_token\s*=\s*(.+)/', $config, $api_token);
         preg_match('/\nmail_api_url\s*=\s*(.+)/', $config, $api_url);
 
+        require __DIR__.'/../vendor/autoload.php';
+
+        $email = new \SendGrid\Mail\Mail(); 
+        $email->setFrom($this->From, $this->FromName);
+        $email->setSubject($this->Subject);
 
         foreach ($this->to as $to) {
-            $mailTo[] = $to[0];
+            $email->addTo($to[0], $to[1]);
         }
 
-        $to = implode(',', $mailTo);
-
-        $body = str_replace(array("\n", "\r"), ' ', $this->AltBody.'>>');
-        $curl = curl_init();
-        curl_setopt_array($curl, array(
-          CURLOPT_URL => trim($api_url[1]),
-          CURLOPT_RETURNTRANSFER => true,
-          CURLOPT_ENCODING => "",
-          CURLOPT_MAXREDIRS => 10,
-          CURLOPT_TIMEOUT => 0,
-          CURLOPT_FOLLOWLOCATION => true,
-          CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-          CURLOPT_CUSTOMREQUEST => "POST",
-          // the body format is the problem so change it to the right one 
-          // add the name as well to the data 
-          CURLOPT_POSTFIELDS =>sprintf("{\"personalizations\": [{\"to\": [{\"email\": \"%s\"}]}],\"from\": {\"email\": \"%s\"},\"subject\": \"%s\",\"content\": [{\"type\": \"text/html\", \"value\": \"%s\"}]}",$to, $this->From, $this->Subject, $body),
-          CURLOPT_HTTPHEADER => array(
-            "Content-Type: application/json",
-            "Authorization: Bearer ".trim($api_token[1])
-          ),
-        ));
-
-        $response = curl_exec($curl);
-        
-        curl_close($curl);
-        
-        return true;
+        $email->addContent("text/plain", $this->AltBody);
+        $email->addContent(
+            "text/html", nl2br($this->AltBody)
+        );
+        $sendgrid = new \SendGrid($api_token[1]);
+        try {
+            $response = $sendgrid->send($email);
+            return true;
+        } catch (Exception $e) {
+            error_log('Caught exception: '. $e->getMessage() ."\n");
+            return false;
+        }
     }
 
     /**
