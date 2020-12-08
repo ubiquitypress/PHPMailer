@@ -1,4 +1,5 @@
 <?php
+
 /**
  * PHPMailer multiple files upload and send example
  */
@@ -6,27 +7,33 @@
 //Import the PHPMailer class into the global namespace
 use PHPMailer\PHPMailer\PHPMailer;
 
+require '../vendor/autoload.php';
+
 $msg = '';
 if (array_key_exists('userfile', $_FILES)) {
-    require '../vendor/autoload.php';
     // Create a message
-    $mail = new PHPMailer;
+    $mail = new PHPMailer();
     $mail->setFrom('from@example.com', 'First Last');
     $mail->addAddress('whoto@example.com', 'John Doe');
     $mail->Subject = 'PHPMailer file sender';
     $mail->Body = 'My message body';
-    //Attach multiple files one by one
-    for ($ct = 0; $ct < count($_FILES['userfile']['tmp_name']); $ct++) {
-        $uploadfile = tempnam(sys_get_temp_dir(), hash('sha256', $_FILES['userfile']['name'][$ct]));
+    // Attach multiple files one by one
+    for ($ct = 0, $ctMax = count($_FILES['userfile']['tmp_name']); $ct < $ctMax; $ct++) {
+        // Extract an extension from the provided filename
+        $ext = PHPMailer::mb_pathinfo($_FILES['userfile']['name'], PATHINFO_EXTENSION);
+        // Define a safe location to move the uploaded file to, preserving the extension
+        $uploadfile = tempnam(sys_get_temp_dir(), hash('sha256', $_FILES['userfile']['name'][$ct])) . '.' . $ext;
         $filename = $_FILES['userfile']['name'][$ct];
         if (move_uploaded_file($_FILES['userfile']['tmp_name'][$ct], $uploadfile)) {
-            $mail->addAttachment($uploadfile, $filename);
+            if (!$mail->addAttachment($uploadfile, $filename)) {
+                $msg .= 'Failed to attach file ' . $filename;
+            }
         } else {
             $msg .= 'Failed to move file to ' . $uploadfile;
         }
     }
     if (!$mail->send()) {
-        $msg .= 'Mailer Error: '. $mail->ErrorInfo;
+        $msg .= 'Mailer Error: ' . $mail->ErrorInfo;
     } else {
         $msg .= 'Message sent!';
     }
@@ -47,7 +54,7 @@ if (array_key_exists('userfile', $_FILES)) {
         <input type="submit" value="Send Files">
     </form>
 <?php } else {
-    echo $msg;
+    echo htmlspecialchars($msg);
 } ?>
 </body>
 </html>

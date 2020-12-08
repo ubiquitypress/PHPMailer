@@ -7,12 +7,12 @@
 //Import PHPMailer class into the global namespace
 use PHPMailer\PHPMailer\PHPMailer;
 
-$msg = '';
 //Don't run this unless we're handling a form submission
 if (array_key_exists('email', $_POST)) {
     date_default_timezone_set('Etc/UTC');
-
     require '../vendor/autoload.php';
+    $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) &&
+        strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
 
     //Create a new PHPMailer instance
     $mail = new PHPMailer();
@@ -55,16 +55,36 @@ Email: {$_POST['email']}
 Name: {$_POST['name']}
 Message: {$_POST['message']}
 EOT;
+
         //Send the message, check for errors
         if (!$mail->send()) {
             //The reason for failing to send will be in $mail->ErrorInfo
             //but it's unsafe to display errors directly to users - process the error, log it on your server.
-            $msg = 'Sorry, something went wrong. Please try again later.';
+            if ($isAjax) {
+                http_response_code(500);
+            }
+
+            $response = [
+                "status" => false,
+                "message" => 'Sorry, something went wrong. Please try again later.'
+            ];
         } else {
-            $msg = 'Message sent! Thanks for contacting us.';
+            $response = [
+                "status" => true,
+                "message" => 'Message sent! Thanks for contacting us.'
+            ];
         }
     } else {
-        $msg = 'Invalid email address, message ignored.';
+        $response = [
+            "status" => false,
+            "message" => 'Invalid email address, message ignored.'
+        ];
+    }
+
+    if ($isAjax) {
+        header('Content-type:application/json;charset=utf-8');
+        echo json_encode($response);
+        exit();
     }
 }
 ?>
@@ -76,10 +96,10 @@ EOT;
 </head>
 <body>
 <h1>Contact us</h1>
-<?php if (!empty($msg)) {
-    echo "<h2>$msg</h2>";
-} ?>
-<form method="POST">
+<h2 id="status-message"><?php if (isset($response)) {
+    echo $response['message'];
+                        }?></h2>
+<form method="POST" id="contact-form">
     <label for="name">Name: <input type="text" name="name" id="name"></label><br>
     <label for="email">Email address: <input type="email" name="email" id="email"></label><br>
     <label for="message">Message: <textarea name="message" id="message" rows="8" cols="20"></textarea></label><br>
@@ -91,5 +111,36 @@ EOT;
     </select><br>
     <input type="submit" value="Send">
 </form>
+
+<script type="application/javascript">
+    const form = document.getElementById("contact-form")
+
+    function email(data) {
+        const message = document.getElementById("status-message")
+        fetch("", {
+            method: "POST",
+            body: data,
+            headers: {
+               'X-Requested-With' : 'XMLHttpRequest'
+            }
+        })
+            .then(response => response.json())
+            .then(response => {message.innerHTML = response.message})
+            .catch(error => {
+                error.json().then(response => {
+                    message.innerHTML = response.message
+                })
+            })
+    }
+
+
+    const submitEvent = form.addEventListener("submit", (event) => {
+        event.preventDefault();
+
+        const formData = new FormData(form);
+
+        email(formData);
+    })
+</script>
 </body>
 </html>
