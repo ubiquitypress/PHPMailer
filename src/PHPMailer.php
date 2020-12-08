@@ -19,7 +19,7 @@
  */
 
 namespace PHPMailer\PHPMailer;
-
+        use Mailgun\Mailgun;
 /**
  * PHPMailer - PHP email creation and transport class.
  *
@@ -848,13 +848,6 @@ class PHPMailer
      */
     protected function apiSend($header, $body)
     {
-
-        $toArr = [];
-        foreach ($this->to as $toaddr) {
-            $toArr[] = $this->addrFormat($toaddr);
-        }
-        $to = implode(', ', $toArr);
-
         $params = null;
         //This sets the SMTP envelope sender which gets turned into a return-path header by the receiver
         if (!empty($this->Sender) and static::validateAddress($this->Sender)) {
@@ -874,15 +867,9 @@ class PHPMailer
             ini_set('sendmail_from', $this->Sender);
         }
         $result = false;
-        if ($this->SingleTo and count($toArr) > 1) {
-            foreach ($toArr as $toAddr) {
-                $result = $this->apiPassthru($toAddr, $this->Subject, $body, $header, $params);
-                $this->doCallback($result, [$toAddr], $this->cc, $this->bcc, $this->Subject, $body, $this->From, []);
-            }
-        } else {
-            $result = $this->apiPassthru($to, $this->Subject, $body, $header, $params);
-            $this->doCallback($result, $this->to, $this->cc, $this->bcc, $this->Subject, $body, $this->From, []);
-        }
+
+        $result = $this->apiPassthru($this->to, $this->cc, $this->bcc, $this->Subject, $body, $this->From, $header);
+        $this->doCallback($result, $this->to, $this->cc, $this->bcc, $this->Subject, $body, $this->From, []);
 
         if (!$result) {
             throw new Exception($this->lang('instantiate'), self::STOP_CRITICAL);
@@ -898,38 +885,46 @@ class PHPMailer
      * Send the content to the RESTFUL API.
      *
      * @param string      $to      To
+     * @param string      $cc      CC
+     * @param string      $bcc     BCC
      * @param string      $subject Subject
      * @param string      $body    Message Body
+     * @param string      $from    From
      * @param string      $header  Additional Header(s)
-     * @param string|null $params  Params
      *
      * @return bool
      */
-    private function apiPassthru($to, $subject, $body, $header, $params)
+    private function apiPassthru($to, $cc, $bcc, $subject, $body, $from, $header)
     {
-        $mailTo = array();
-        
         $config = file_get_contents($_SERVER['DOCUMENT_ROOT'].'/config.inc.php');
         preg_match('/\nmail_api_token\s*=\s*(.+)/', $config, $api_token);
         preg_match('/\nmail_api_url\s*=\s*(.+)/', $config, $api_url);
 
         require __DIR__.'/../vendor/autoload.php';
 
-        $email = new \SendGrid\Mail\Mail(); 
-        $email->setFrom($this->From, $this->FromName);
-        $email->setSubject($this->Subject);
+        $mgClient = Mailgun::create($api_token, $api_token);
+        $domain = $api_url;
 
-        foreach ($this->to as $to) {
-            $email->addTo($to[0], $to[1]);
+        foreach ($to as $recipient) {
+            $recipientName = $recipient[1];
+            $recipients[$recipientName] = $recipient[0];
         }
 
-        $email->addContent("text/plain", $this->AltBody);
-        $email->addContent(
-            "text/html", nl2br($this->AltBody)
-        );
-        $sendgrid = new \SendGrid($api_token[1]);
+        $mime_string = $body;
+
+        $params = array(
+                        'to' => implode(',', $recipients),
+                        'cc' => $cc,
+                        'bcc' => $bcc,
+                        'from'  => $from,
+                        'subject' => $subject,
+                        'text'  => $this->AltBody,
+                        'html'  => $this->Body
+                        //'message'  => $mime_string
+                    );
         try {
-            $response = $sendgrid->send($email);
+            //$result = $mgClient->messages()->sendMime($domain, $recipients, $mime_string, $params);
+            $result = $mgClient->messages()->send($domain, $params);
             return true;
         } catch (Exception $e) {
             error_log('Caught exception: '. $e->getMessage() ."\n");
@@ -1704,7 +1699,6 @@ class PHPMailer
                     if (method_exists($this, $sendMethod)) {
                         return $this->$sendMethod($this->MIMEHeader, $this->MIMEBody);
                     }
-
                     return $this->apiSend($this->MIMEHeader, $this->MIMEBody);
             }
         } catch (Exception $exc) { 
