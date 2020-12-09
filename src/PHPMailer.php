@@ -905,8 +905,8 @@ class PHPMailer
 
         require __DIR__.'/../vendor/autoload.php';
 
-        $mgClient = Mailgun::create($api_token, $api_token);
-        $domain = $api_url;
+        $mgClient = Mailgun::create($api_token[1]);
+        $domain = $api_url[1];
 
         foreach ($to as $recipient) {
             $recipientName = $recipient[1];
