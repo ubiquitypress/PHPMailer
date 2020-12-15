@@ -839,7 +839,7 @@ class PHPMailer
         $this->smtpClose();
     }
 
-/**
+    /**
      * Send mail using RESTFUL API.
      *
      * @param string $header The message headers
@@ -879,8 +879,6 @@ class PHPMailer
         }
 
         return true;
-
-
     }
 
 
